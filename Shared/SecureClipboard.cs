@@ -32,7 +32,7 @@ public static class SecureClipboard
     private static nint owner;
     private static nint Owner()
     {
-        if (owner == 0) { try { owner = System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle; } catch { owner = 0; } }
+        if (owner == 0) { try { using var p = System.Diagnostics.Process.GetCurrentProcess(); owner = p.MainWindowHandle; } catch { owner = 0; } }
         return owner;
     }
 
@@ -61,10 +61,17 @@ public static class SecureClipboard
             if (!EmptyClipboard()) { LastError = "could not empty the clipboard"; return false; }
             var h = Alloc(Encoding.Unicode.GetBytes(text + "\0"));
             if (h == 0 || SetClipboardData(CF_UNICODETEXT, h) == 0) { if (h != 0) GlobalFree(h); LastError = "could not write to the clipboard"; return false; }
+            // The history/cloud/monitor exclusions are required: if any fails, wipe the text and report failure.
             var zero = BitConverter.GetBytes(0u);
-            foreach (var f in new[] { "CanIncludeInClipboardHistory", "CanUploadToCloudClipboard" })
-            { var hz = Alloc(zero); if (hz != 0 && SetClipboardData(RegisterClipboardFormat(f), hz) == 0) GlobalFree(hz); }
-            var hx = Alloc(zero); if (hx != 0 && SetClipboardData(RegisterClipboardFormat("ExcludeClipboardContentFromMonitorProcessing"), hx) == 0) GlobalFree(hx);
+            foreach (var f in new[] { "CanIncludeInClipboardHistory", "CanUploadToCloudClipboard", "ExcludeClipboardContentFromMonitorProcessing" })
+            {
+                var fmt = RegisterClipboardFormat(f); var hz = fmt == 0 ? 0 : Alloc(zero);
+                if (hz == 0 || SetClipboardData(fmt, hz) == 0)
+                {
+                    if (hz != 0) GlobalFree(hz);
+                    EmptyClipboard(); LastError = "could not exclude the text from clipboard history/sync"; return false;
+                }
+            }
         }
         finally { CloseClipboard(); }
         return true;
