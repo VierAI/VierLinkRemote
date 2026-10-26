@@ -88,3 +88,21 @@ Requires Node 22 or newer (built-in `WebSocket` and `fetch`). `<HOME>` is the Ma
 ```
 
 If the HTTP interface is ever enabled, keep port 17361 and read the bearer from `vlr.httpToken()`.
+
+## Capture requests (one-shot mode, 0.1.1.4)
+
+The viewer side can ask for a subset of the normal snapshot instead of everything:
+
+```
+creator -> relay -> tester   {"t":"refresh","req":{"id":"q1","players":["P12","receiver"],"sections":["sync","penumbra"]}}
+```
+
+- `id`: 1-32 of `A-Za-z0-9_-`, required. Echoed back as `reqId` inside the encrypted snapshot.
+- `players` (optional, max 20, unique): per-session labels (`P<n>`) or `receiver`. Omitted = everyone the snapshot would include anyway.
+- `sections` (optional, 1-5, unique): any of `sync`, `penumbra`, `glamourer`, `customizePlus`, `distance`. Omitted = all.
+- Any other key, wrong type, duplicate or oversize request (over 400 chars) is refused by the tester (logged in its Activity) and by the receiver.
+- A request can only narrow the snapshot. It cannot add fields or turn on Reveal; the tester's Send preview still applies.
+- The relay passes `req` through unchanged; frames from the creator stay capped at 512 bytes.
+- Receiver: `startSession({ request })` sends the request as soon as the tester joins; `request(session, req)` sends one on a live session.
+  Either way the receiver ends the session after the first snapshot whose `reqId` matches (files kept for the retention period).
+  `refresh(session)` without a request behaves as before.

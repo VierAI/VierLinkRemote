@@ -22,6 +22,11 @@ function b64u(s: string): Uint8Array {
 const enc = new TextEncoder();
 const now = () => Math.floor(Date.now() / 1000);
 
+/** Creator refresh -> tester frame. `req` is passed through as-is (the frame is already capped at MAX_CTL); the tester validates it. */
+export function refreshFrame(msg: any): string {
+  return msg && typeof msg.req === "object" && msg.req !== null && !Array.isArray(msg.req) ? JSON.stringify({ t: "refresh", req: msg.req }) : '{"t":"refresh"}';
+}
+
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     // WebSocket only; browsers (any Origin header) are refused, so no CORS surface exists.
@@ -87,7 +92,7 @@ export class Session {
       if (msg?.t === "join" || msg?.t === "create") return; // late duplicate hello: ignore, keep the live connection
       if (msg?.t === "end") return this.endAll();
       if (role === "tester" && msg?.t === "data" && typeof msg.d === "string") { this.creator?.send(JSON.stringify({ t: "data", d: msg.d })); return; }
-      if (role === "creator" && msg?.t === "refresh") { this.tester?.send('{"t":"refresh"}'); return; }
+      if (role === "creator" && msg?.t === "refresh") { this.tester?.send(refreshFrame(msg)); return; }
       this.close(server, 4400, "bad frame");
     })(); });
     const gone = () => { closed = true; clearTimeout(timer); if (authed) this.endAll(); };

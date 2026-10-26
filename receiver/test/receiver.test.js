@@ -240,3 +240,40 @@ test("http interface is off by default", async () => {
   const { mod } = make();
   await mod.start(); assert.equal(mod.httpToken(), null); await mod.stop();
 });
+
+test("capture requests: strict validation, one-shot end after the matching reply, reqId in summary", async () => {
+  const { validateRequest } = await import("../src/request.js");
+  assert.deepEqual(validateRequest({ id: "a1", players: ["P12", "receiver"], sections: ["sync"] }), { id: "a1", players: ["P12", "receiver"], sections: ["sync"] });
+  assert.deepEqual(validateRequest('{"id":"x"}'), { id: "x" });
+  for (const bad of [null, [], "nope", {}, { id: "" }, { id: "a b" }, { id: "x".repeat(33) }, { id: "a", reveal: true }, { id: "a", extra: 1 },
+    { id: "a", players: ["Firstname Lastname"] }, { id: "a", players: ["P1", "P1"] }, { id: "a", players: Array.from({ length: 21 }, (_, i) => `P${i}`) },
+    { id: "a", sections: [] }, { id: "a", sections: ["chat"] }, { id: "a", sections: "sync" }, "x".repeat(401)])
+    assert.throws(() => validateRequest(bad), undefined, JSON.stringify(bad)?.slice(0, 60));
+
+  const { mod, hooks, dir } = make();
+  await mod.start();
+  const r = await mod.startSession({ request: { id: "first", sections: ["sync"] } }); const body = readToken(r.token); const ws = FakeWS.last;
+  const k = C.unb64u(body.k), sid = C.unb64u(body.sid);
+  const reply = (seq, reqId) => ({ t: "data", d: C.b64u(C.seal(Buffer.from(JSON.stringify({ v: 1, scope: 3, mode: "live", reveal: false, reqId, sections: ["sync"], players: [{ label: "P1", paired: true, sync: { state: "loaded" } }] })), C.unb64u(keys.xpub), k, sid, seq)) });
+  assert.throws(() => mod.request(r.session, { id: "early" }), /not joined/);
+  ws.relay({ t: "ok" }); ws.relay({ t: "joined" });
+  assert.deepEqual(JSON.parse(ws.sent.at(-1)), { t: "refresh", req: { id: "first", sections: ["sync"] } });
+  ws.relay(reply(1, undefined)); await tick(); // the tester's automatic first capture: kept, session stays open
+  assert.equal(mod.status()[0].ended, false);
+  ws.relay(reply(2, "other")); await tick();
+  assert.equal(mod.status()[0].ended, false);
+  ws.relay(reply(3, "first")); await tick();
+  assert.equal(mod.status()[0].ended, true);
+  assert.ok(ws.sent.includes('{"t":"end"}'));
+  assert.equal(fs.readdirSync(dir).length, 3); // one-shot end keeps files for the retention period
+  assert.equal(JSON.parse(hooks.at(-1).init.body).summary.reqId, "first");
+  await mod.stop();
+
+  const m2 = make(); await m2.mod.start();
+  await assert.rejects(m2.mod.startSession({ request: { id: "a", reveal: true } }), /unknown key/);
+  const r2 = await m2.mod.startSession(); const w2 = FakeWS.last; w2.relay({ t: "ok" }); w2.relay({ t: "joined" });
+  assert.throws(() => m2.mod.request(r2.session, { id: "a", sections: ["names"] }), /bad sections/);
+  assert.deepEqual(m2.mod.request(r2.session, { id: "q2", players: ["P3"] }), { session: r2.session, reqId: "q2" });
+  assert.equal(w2.sent.at(-1), '{"t":"refresh","req":{"id":"q2","players":["P3"]}}');
+  await m2.mod.stop();
+});

@@ -47,9 +47,12 @@ public sealed class Session
         Task.Run(async () => { try { await r.ConnectAsync(sid, "tester", hello); } catch (Exception e) { r.CloseReason = e.Message; r.Closed = true; } });
     }
 
-    public void Capture()
+    public void Capture() => Capture(null);
+
+    public void Capture(CaptureRequest? req)
     {
-        Pending = Collector.Build(Ctx, "live", out var trimmed);
+        Pending = Collector.Build(Ctx, "live", req, out var trimmed);
+        if (req != null) Note($"viewer request {req.Id}: sections {string.Join(",", req.Sections)}" + (req.Players == null ? "" : $", players {string.Join(",", req.Players)}"));
         if (trimmed > 0) Note($"snapshot too large, trimmed: {trimmed} player(s) left out");
         Note("snapshot captured (" + Pending.Length + " chars)" + (AutoSend ? "" : "; waiting for you to press Send"));
     }
@@ -75,11 +78,18 @@ public sealed class Session
         if (DateTime.UtcNow - lastActivity > IdleLimit) { End("idle for 15 minutes"); return; }
         while (relay.Inbox.TryDequeue(out var m))
         {
-            string? t = null; try { t = JsonDocument.Parse(m).RootElement.GetProperty("t").GetString(); } catch { }
+            string? t = null; JsonElement reqEl = default; var hasReq = false;
+            try { var root = JsonDocument.Parse(m).RootElement; t = root.GetProperty("t").GetString(); hasReq = root.TryGetProperty("req", out reqEl); } catch { }
             switch (t)
             {
                 case "ok": Connected = true; Note("connected; the viewer can now request snapshots"); Capture(); break;
-                case "refresh": lastActivity = DateTime.UtcNow; Note("viewer asked for a fresh snapshot"); Capture(); break;
+                case "refresh":
+                    lastActivity = DateTime.UtcNow;
+                    if (!hasReq) { Note("viewer asked for a fresh snapshot"); Capture(); break; }
+                    CaptureRequest req;
+                    try { req = CaptureRequest.Parse(reqEl); }
+                    catch (FormatException e) { Note("viewer request refused: " + e.Message); break; }
+                    Capture(req); break;
                 case "end": End("viewer ended the session"); return;
                 default: Note("ignored unknown relay message"); break;
             }

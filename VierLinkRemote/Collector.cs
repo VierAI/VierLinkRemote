@@ -41,11 +41,20 @@ public static unsafe class Collector
 
     public static string Build(Ctx c, string mode) => Build(c, mode, out _);
 
-    public static string Build(Ctx c, string mode, out int trimmed)
+    public static string Build(Ctx c, string mode, out int trimmed) => Build(c, mode, null, out trimmed);
+
+    /// <summary>req (optional) only narrows the output: fewer players and/or fewer sections. It never adds fields or changes reveal.</summary>
+    public static string Build(Ctx c, string mode, CaptureRequest? req, out int trimmed)
     {
         trimmed = 0;
         var lp = Plugin.Objects.LocalPlayer;
         var root = new JsonObject { ["v"] = Pinned.Protocol, ["scope"] = Pinned.Scope, ["mode"] = mode, ["reveal"] = c.Reveal, ["atUtc"] = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ") };
+        if (req != null)
+        {
+            root["reqId"] = req.Id;
+            var secs = new JsonArray(); foreach (var s in CaptureRequest.AllSections) if (req.Wants(s)) secs.Add(s);
+            root["sections"] = secs;
+        }
         var players = new JsonArray();
         if (lp == null) { root["error"] = "not logged in"; root["players"] = players; return root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }); }
 
@@ -66,13 +75,17 @@ public static unsafe class Collector
             if (!isSelf && !paired) continue; // vanilla / unpaired players are never included
             var open = isSelf || c.Reveal;
             var nh = c.H("name", nw);
-            var p = new JsonObject { ["label"] = isSelf ? "receiver" : c.Label(nh), ["self"] = isSelf, ["paired"] = paired, ["distance"] = Math.Round(dist, 1) };
+            var label = isSelf ? "receiver" : c.Label(nh); // label assigned before filtering so labels stay stable across requests
+            if (req?.Players != null && !req.Players.Contains(label)) continue;
+            var p = new JsonObject { ["label"] = label, ["self"] = isSelf, ["paired"] = paired };
+            if (req == null || req.Wants("distance")) p["distance"] = Math.Round(dist, 1);
             if (open) p["name"] = nw; else p["nameHash"] = nh;
-            if (pair != null) p["sync"] = new JsonObject { ["state"] = pair.State, ["status"] = pair.Status, ["lastApplyUtc"] = pair.LastApplyUtc, ["dataHash"] = pair.DataHash == null ? null : c.H("data", pair.DataHash) };
+            if (req != null && !req.Wants("sync")) { }
+            else if (pair != null) p["sync"] = new JsonObject { ["state"] = pair.State, ["status"] = pair.Status, ["lastApplyUtc"] = pair.LastApplyUtc, ["dataHash"] = pair.DataHash == null ? null : c.H("data", pair.DataHash) };
             else p["sync"] = new JsonObject { ["state"] = paired ? "handled (no state IPC)" : "not paired" };
-            p["penumbra"] = Penumbra(o.ObjectIndex, c, open);
-            p["glamourer"] = Glamourer(o.ObjectIndex);
-            p["customizePlus"] = CPlus(o.ObjectIndex);
+            if (req == null || req.Wants("penumbra")) p["penumbra"] = Penumbra(o.ObjectIndex, c, open);
+            if (req == null || req.Wants("glamourer")) p["glamourer"] = Glamourer(o.ObjectIndex);
+            if (req == null || req.Wants("customizePlus")) p["customizePlus"] = CPlus(o.ObjectIndex);
             players.Add(p);
         }
         root["players"] = players;

@@ -136,3 +136,13 @@ describe("join check races (N3)", () => {
     await t.wait(() => t.msgs.length > 0 || t.closed !== null); expect(t.msgs[0]).toBe('{"t":"ok"}');
   });
 });
+
+describe("capture requests", () => {
+  it("passes req through as-is and keeps the bare refresh", async () => {
+    const { refreshFrame } = await import("../src/index");
+    expect(refreshFrame({ t: "refresh" })).toBe('{"t":"refresh"}');
+    expect(refreshFrame({ t: "refresh", req: "x" })).toBe('{"t":"refresh"}');
+    expect(refreshFrame({ t: "refresh", req: [1] })).toBe('{"t":"refresh"}');
+    expect(JSON.parse(refreshFrame({ t: "refresh", req: { id: "a", sections: ["sync"] }, extra: 1 }))).toEqual({ t: "refresh", req: { id: "a", sections: ["sync"] } });
+  });
+});

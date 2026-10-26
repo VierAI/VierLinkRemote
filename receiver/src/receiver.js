@@ -2,6 +2,7 @@
 import * as C from "./crypto.js";
 import { SnapshotStore } from "./store.js";
 import { makeSecretGetter } from "./secrets.js";
+import { validateRequest } from "./request.js";
 
 const STATES = new Set(["loaded", "paused", "redrawing", "waiting", "other", "handled (no state IPC)", "not paired"]);
 const MAX_SNAPSHOT_CHARS = 100_000;
@@ -41,6 +42,7 @@ export function summarize(snap) {
     reveal: snap?.reveal === true,
     players: players.length, paired, ownerVisible: owner > 0, states,
     trimmed: typeof snap?.trimmed === "string", error: typeof snap?.error === "string",
+    reqId: typeof snap?.reqId === "string" && /^[A-Za-z0-9_-]{1,32}$/.test(snap.reqId) ? snap.reqId : null,
   };
 }
 
@@ -115,8 +117,10 @@ export class Receiver {
   #timer(fn, ms) { const t = setTimeout(() => { this.timers.delete(t); try { fn(); } catch { /* never throw into the host */ } }, ms); t.unref?.(); this.timers.add(t); return t; }
 
   /** Mints a signed single-use token (1 h), connects as creator. Returns { session, token, expiresAt }. */
-  async startSession() {
+  /** opts.request: optional capture request sent as soon as the tester joins; with it the session is one-shot. */
+  async startSession(opts = {}) {
     this.#need();
+    const firstReq = opts?.request !== undefined ? validateRequest(opts.request) : null;
     const live = [...this.sessions.values()].filter((s) => !s.ended).length;
     if (live >= this.cfg.maxSessions) throw new Error(`too many live sessions (max ${this.cfg.maxSessions})`);
     const k = C.random(32), sidB = C.random(16), sid = C.b64u(sidB);
@@ -128,7 +132,7 @@ export class Receiver {
     const auth = C.b64u(C.authKey(k, sidB)), ts = Math.floor(Date.now() / 1000);
     const hello = JSON.stringify({ t: "create", sid, exp, auth, ts, sig: C.b64u(C.sign(this.keys.edpriv, C.createProofMessage(sid, exp, auth, ts))) });
 
-    const s = { sid, sidB, k, exp, lastSeq: 0n, joined: false, ended: false, accepted: false, files: [], ws: null, log: [] };
+    const s = { sid, sidB, k, exp, lastSeq: 0n, joined: false, ended: false, accepted: false, files: [], ws: null, log: [], awaitReq: null, firstReq };
     this.sessions.set(sid, s);
     const ws = new this.WS(url + sid, { headers: { "X-VLR-Role": "creator" } });
     s.ws = ws;
@@ -154,7 +158,7 @@ export class Receiver {
     let m; try { m = JSON.parse(typeof data === "string" ? data : Buffer.from(data).toString("utf8")); } catch { return this.#note(s, "ignored non-JSON relay message"); }
     switch (m?.t) {
       case "ok": s.accepted = true; this.#note(s, "relay accepted the session"); break;
-      case "joined": s.joined = true; this.#note(s, "tester joined; token consumed"); break;
+      case "joined": s.joined = true; this.#note(s, "tester joined; token consumed"); if (s.firstReq) { const r = s.firstReq; s.firstReq = null; try { this.request(s.sid, r); } catch (e) { this.#safeNote(s, `first request not sent (${e?.message ?? "error"})`); } } break;
       case "data": if (typeof m.d === "string") this.#onData(s, m.d); break;
       case "end": this.end(s.sid, "tester ended the session"); break;
       default: this.#note(s, "ignored relay message");
@@ -179,6 +183,7 @@ export class Receiver {
     this.#note(s, `snapshot #${seq} saved`);
     // path is the file name relative to snapshotDir; the absolute path never leaves the module.
     this.#webhook({ session: s.sid, path: file, summary }).catch(() => {});
+    if (s.awaitReq && summary.reqId === s.awaitReq) { s.awaitReq = null; this.end(s.sid, `one-shot request ${summary.reqId} answered`); }
   }
 
   async #webhook(body, attempt = 0) {
@@ -195,12 +200,22 @@ export class Receiver {
     else this.log("warn", `webhook failed (${status || "network"}); giving up`);
   }
 
-  /** Ask the tester for a fresh snapshot. */
-  refresh(id) {
+  /** Ask the tester for a fresh snapshot; with req, only that subset (validated strictly). */
+  refresh(id, req) {
     const s = this.#live(id);
     if (!s.joined) throw new Error("tester has not joined yet");
-    s.ws.send('{"t":"refresh"}');
-    this.#note(s, "asked for a fresh snapshot");
+    if (req === undefined) { s.ws.send('{"t":"refresh"}'); this.#note(s, "asked for a fresh snapshot"); return null; }
+    const clean = validateRequest(req);
+    s.ws.send(JSON.stringify({ t: "refresh", req: clean }));
+    this.#note(s, `sent request ${clean.id}`);
+    return clean;
+  }
+
+  /** One-shot: sends req and ends the session (files kept for retention) after the first reply that echoes req.id. */
+  request(id, req) {
+    const clean = this.refresh(id, req);
+    this.sessions.get(id).awaitReq = clean.id;
+    return { session: id, reqId: clean.id };
   }
 
   #live(id) { const s = this.sessions.get(id); if (!s || s.ended) throw new Error("no such live session"); return s; }

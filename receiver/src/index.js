@@ -5,6 +5,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 export { Receiver, sanitize, summarize } from "./receiver.js";
 export * as protocol from "./crypto.js";
+export { validateRequest, SECTIONS } from "./request.js";
 
 /**
  * createModule({ config, getSecret, log }) -> { start(), stop(), startSession(), refresh(id), end(id), decryptExport(text), status() }
@@ -34,8 +35,9 @@ export function createModule({ config = {}, getSecret, log, fetch, WebSocket, pi
     async stop() { if (web) { await web.close(); web = null; } dropToken(); await receiver.stop(); },
     /** The per-start bearer for the local HTTP interface (null when disabled). Hand it only to the host or CLI. */
     httpToken: () => httpToken,
-    startSession: () => receiver.startSession(),
-    refresh: (id) => receiver.refresh(id),
+    startSession: (opts) => receiver.startSession(opts),
+    refresh: (id, req) => receiver.refresh(id, req),
+    request: (id, req) => receiver.request(id, req),
     end: (id) => receiver.end(id, "ended by request", { wipe: true }),
     decryptExport: (text) => receiver.decryptExport(text),
     status: () => receiver.status(),
