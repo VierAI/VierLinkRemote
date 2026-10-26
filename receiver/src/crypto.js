@@ -7,7 +7,7 @@ export const PINNED = Object.freeze({
   edpub: "IoYptqyr-rn4SptqhjHxcDIAnxexZFpsa5zG4av3jiM",
   fingerprint: "3fc91495a6dfaa226937138c7cc2a4e0",
   protocol: 1,
-  scope: 2, // must equal Pinned.Scope in Shared/Proto.cs
+  scope: 3, // must equal Pinned.Scope in Shared/Proto.cs
   tokenTtlSeconds: 3600,
 });
 

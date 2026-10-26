@@ -69,7 +69,7 @@ other 4xx responses are not retried.
 
 ## Notes
 
-- Tokens: same format, protocol 1, scope 2, 1 h expiry, pinned relay and fingerprint `3fc91495a6dfaa226937138c7cc2a4e0`.
+- Tokens: same format, protocol 1, scope 3, 1 h expiry, pinned relay and fingerprint `3fc91495a6dfaa226937138c7cc2a4e0`.
 - Reveal is the tester's switch in the plugin (their consent). The receiver reports it (`summary.reveal`) but cannot turn it on.
 - Snapshot files are untrusted data from another player's client and are labelled as such.
 - Tests: `cd receiver && node --test` (throwaway keys, fake relay, no network).

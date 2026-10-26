@@ -21,7 +21,7 @@ public static class Pinned
     public const string Fingerprint = "3fc91495a6dfaa226937138c7cc2a4e0";
     public const int Protocol = 1;
     /// <summary>Bump when the shared fields change; testers must consent again.</summary>
-    public const int Scope = 2; // v2: sessions are viewed by an automated assistant
+    public const int Scope = 3; // v3: an AI assistant requests and processes captures; no human in the debug process
     public const int TokenTtlSeconds = 3600;
     public static bool HostConfigured => !RelayHost.EndsWith(".invalid", StringComparison.Ordinal);
     public static string RelayBase => "wss://" + RelayHost + "/s/";

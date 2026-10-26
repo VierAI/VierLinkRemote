@@ -56,7 +56,7 @@ test("crypto: seal/open, tamper, wrong key, export timestamp bound", () => {
 test("key bundle must match the pins; real pins are unchanged", () => {
   assert.throws(() => C.parseKeyBundle(`vlrk1.${C.b64u(C.random(32))}.${C.b64u(C.random(32))}`, pins), /pinned/);
   assert.equal(C.fingerprint(C.PINNED.xpub, C.PINNED.edpub), C.PINNED.fingerprint);
-  assert.equal(C.PINNED.scope, 2);
+  assert.equal(C.PINNED.scope, 3);
 });
 
 test("startup wipes old snapshot files and keeps foreign files", async () => {
@@ -76,7 +76,7 @@ test("start-session: token format, scope, expiry, create proof", async () => {
   const r = await mod.startSession();
   const body = readToken(r.token);
   assert.deepEqual(Object.keys(body), ["v", "scope", "sid", "url", "k", "exp", "self"]);
-  assert.equal(body.v, 1); assert.equal(body.scope, 2); assert.equal(body.sid, r.session);
+  assert.equal(body.v, 1); assert.equal(body.scope, 3); assert.equal(body.sid, r.session);
   assert.equal(body.url, "wss://relay.lafxrfz8x1.workers.dev/s/");
   assert.ok(Math.abs(body.exp - (Date.now() / 1000 + 3600)) < 5);
   const ws = FakeWS.last;
@@ -93,7 +93,7 @@ test("snapshots: decrypt, lastSeq, file 0600, webhook once with bearer, refresh,
   await mod.start();
   const r = await mod.startSession(); const body = readToken(r.token); const ws = FakeWS.last;
   const k = C.unb64u(body.k), sid = C.unb64u(body.sid);
-  const snap = (seq, extra = {}) => ({ t: "data", d: C.b64u(C.seal(Buffer.from(JSON.stringify({ v: 1, scope: 2, mode: "live", reveal: false, players: [{ label: "P1", paired: true, sync: { state: "loaded" } }, { label: "P2", paired: true, sync: { state: "Firstname Lastname" } }], ...extra })), C.unb64u(keys.xpub), k, sid, seq)) });
+  const snap = (seq, extra = {}) => ({ t: "data", d: C.b64u(C.seal(Buffer.from(JSON.stringify({ v: 1, scope: 3, mode: "live", reveal: false, players: [{ label: "P1", paired: true, sync: { state: "loaded" } }, { label: "P2", paired: true, sync: { state: "Firstname Lastname" } }], ...extra })), C.unb64u(keys.xpub), k, sid, seq)) });
   ws.relay({ t: "ok" }); ws.relay({ t: "joined" });
   ws.relay(snap(1)); ws.relay(snap(1)); ws.relay(snap(3)); ws.relay(snap(2));
   ws.relay({ t: "data", d: C.b64u(C.seal(Buffer.from("{}"), C.unb64u(keys.xpub), C.random(32), sid, 9)) }); // wrong k
