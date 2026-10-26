@@ -58,17 +58,25 @@ export class Session {
     const [client, server] = [pair[0], pair[1]];
     server.accept();
     let authed = false;
+    let authing = false; // join/create check in progress: further frames on this socket are ignored until it finishes
+    let closed = false;
     const bucket: Bucket = { tokens: 5, at: Date.now() };
     const timer = setTimeout(() => { if (!authed) this.close(server, 4401, "auth timeout"); }, HELLO_TIMEOUT_MS);
 
     server.addEventListener("message", (ev: MessageEvent) => { void (async () => {
       const data = typeof ev.data === "string" ? ev.data : "";
       const cap = !authed ? 2048 : role === "tester" ? MAX_DATA : MAX_CTL;
+      if (closed) return;
       if (data.length === 0 || data.length > cap) return this.close(server, 4413, "too large");
+      if (authing) return; // e.g. a duplicate hello: ignore it instead of failing the real handshake
       if (!take(bucket, role === "tester" ? 1 : 2)) return this.close(server, 4429, "rate limited");
       let msg: any; try { msg = JSON.parse(data); } catch { return this.close(server, 4400, "bad frame"); }
       if (!authed) {
-        const ok = role === "creator" ? await this.authCreator(sid, msg) : await this.authTester(sid, msg);
+        authing = true;
+        let ok = false;
+        try { ok = role === "creator" ? await this.authCreator(sid, msg) : await this.authTester(sid, msg, () => !closed); }
+        finally { authing = false; }
+        if (closed) return; // socket went away mid-check; authTester has already left the token unconsumed
         if (!ok) return this.close(server, 4403, "denied");
         authed = true; clearTimeout(timer);
         if (role === "creator") this.creator = server;
@@ -76,12 +84,13 @@ export class Session {
         server.send('{"t":"ok"}');
         return;
       }
+      if (msg?.t === "join" || msg?.t === "create") return; // late duplicate hello: ignore, keep the live connection
       if (msg?.t === "end") return this.endAll();
       if (role === "tester" && msg?.t === "data" && typeof msg.d === "string") { this.creator?.send(JSON.stringify({ t: "data", d: msg.d })); return; }
       if (role === "creator" && msg?.t === "refresh") { this.tester?.send('{"t":"refresh"}'); return; }
       this.close(server, 4400, "bad frame");
     })(); });
-    const gone = () => { clearTimeout(timer); if (authed) this.endAll(); };
+    const gone = () => { closed = true; clearTimeout(timer); if (authed) this.endAll(); };
     server.addEventListener("close", gone);
     server.addEventListener("error", gone);
     return new Response(null, { status: 101, webSocket: client });
@@ -106,26 +115,30 @@ export class Session {
     return true;
   }
 
-  private async authTester(sid: string, m: any): Promise<boolean> {
+  private async authTester(sid: string, m: any, alive: () => boolean): Promise<boolean> {
     const meta = this.meta;
     if (!meta || !this.creator || this.tester || meta.consumed || this.testerClaimed) return false; // second tester rejected
     if (m?.t !== "join" || m.sid !== sid || typeof m.n !== "string" || typeof m.mac !== "string") return false;
     const t = now();
     if (!Number.isInteger(m.ts) || Math.abs(t - m.ts) > SKEW || t >= meta.exp) return false;
-    this.testerClaimed = true; // claimed synchronously, before the first await
+    // MAC checks run concurrently without holding a claim, so a wrong guess cannot block the real tester.
     let ok = false;
     try {
       const key = await crypto.subtle.importKey("raw", b64u(meta.auth), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
       ok = await crypto.subtle.verify("HMAC", key, b64u(m.mac), enc.encode(`vlr1-join|${sid}|${m.ts}|${m.n}`));
     } catch { ok = false; }
-    if (!ok) {
-      // Safe to release: nothing was consumed and no other join could pass while the claim was held.
-      // Releasing keeps a bad guess from burning the real tester's token.
-      this.testerClaimed = false;
-      return false;
-    }
+    if (!ok || !alive()) return false; // bad MAC, or the socket closed mid-check: token stays unused
+    // Synchronous check-and-claim after verification: exactly one valid join can win.
+    if (this.testerClaimed || this.tester || meta.consumed || this.meta !== meta) return false;
+    this.testerClaimed = true;
     meta.consumed = true; // single use: consumed at first successful handshake
     await this.state.storage.put("meta", meta);
+    if (!alive()) {
+      // Disconnected while the consume was being saved: give the token back so the real tester can retry.
+      meta.consumed = false; this.testerClaimed = false;
+      await this.state.storage.put("meta", meta);
+      return false;
+    }
     return true;
   }
 

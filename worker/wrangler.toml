@@ -2,7 +2,7 @@
 name = "relay"
 main = "src/index.ts"
 compatibility_date = "2026-10-01"
-workers_dev = false
+workers_dev = true # deploys to relay.<account subdomain>.workers.dev; the account comes from wrangler login or env, not this file
 # routes = [{ pattern = "<neutral-hostname>", custom_domain = true }]
 
 [observability]

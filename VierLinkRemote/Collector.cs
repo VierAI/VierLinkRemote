@@ -87,9 +87,11 @@ public static unsafe class Collector
         return text;
     }
 
-    private static readonly System.Text.RegularExpressions.Regex Word = new("^[A-Za-z][A-Za-z _-]{0,23}$");
-    /// <summary>PSync state/status reduced to a short word; anything else (could hold names or IDs) becomes "other".</summary>
-    private static string? Enum(string? s) => s == null ? null : Word.IsMatch(s) && !s.Contains('@') ? s : "other";
+    // Exact values from the PSync fork: PSyncDebugIpc.GetPairStates (state) and DataApplicationStatus (status).
+    private static readonly HashSet<string> States = new(StringComparer.Ordinal) { "loaded", "paused", "redrawing", "waiting" };
+    private static readonly HashSet<string> Statuses = new(StringComparer.Ordinal) { "Init", "Waiting", "Queued", "Deferred", "Starting", "Processing", "Downloading", "Applying", "Cancelled", "Completed", "Failed" };
+    /// <summary>PSync state/status passed only if it is an exact known value; anything else becomes "other".</summary>
+    private static string? Enum(string? s, HashSet<string> allowed) => s == null ? null : allowed.Contains(s) ? s : "other";
     private static string? Utc(string? s) => s != null && DateTime.TryParse(s, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal, out var d) ? d.ToString("yyyy-MM-ddTHH:mm:ssZ") : null;
 
     private static (Dictionary<int, Pair>, string) ReadPairs()
@@ -105,7 +107,7 @@ public static unsafe class Collector
                 int? ix = null;
                 foreach (var k in new[] { "objIndex", "objectIndex" }) if (it.TryGetProperty(k, out var e) && e.ValueKind == JsonValueKind.Number && e.TryGetInt32(out var x)) ix = x;
                 if (ix is not { } i || i < 0) continue;
-                d[i] = new Pair(Enum(S(it, "state")), Enum(S(it, "status")), Utc(S(it, "lastApplyUtc")), S(it, "dataHash"));
+                d[i] = new Pair(Enum(S(it, "state"), States), Enum(S(it, "status"), Statuses), Utc(S(it, "lastApplyUtc")), S(it, "dataHash"));
             }
             return (d, "pair-states v" + ver);
         }

@@ -28,25 +28,45 @@ public static class SecureClipboard
         var p = GlobalLock(h); Marshal.Copy(b, 0, p, b.Length); GlobalUnlock(h); return h;
     }
 
-    private static bool Open() { for (var i = 0; i < 10; i++) { if (OpenClipboard(0)) return true; System.Threading.Thread.Sleep(10); } return false; }
+    /// <summary>Owner window for the clipboard (the game window); a NULL owner can make SetClipboardData fail.</summary>
+    private static nint owner;
+    private static nint Owner()
+    {
+        if (owner == 0) { try { owner = System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle; } catch { owner = 0; } }
+        return owner;
+    }
+
+    /// <summary>Up to 5 quick tries (max ~20 ms blocking) so a busy clipboard does not stall the framework thread.</summary>
+    private static bool Open() { for (var i = 0; i < 5; i++) { if (OpenClipboard(Owner())) return true; if (i < 4) System.Threading.Thread.Sleep(5); } return false; }
+
+    /// <summary>Last failure reason from Set, for the UI.</summary>
+    public static string LastError { get; private set; } = "";
 
     /// <summary>Sets text excluded from history/cloud. clearAfterSeconds &gt; 0 clears it later if still ours.</summary>
     public static bool Set(string text, int clearAfterSeconds = 0)
     {
-        if (!Open()) return false;
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            if (TrySet(text)) { LastError = ""; ourSeq = GetClipboardSequenceNumber(); clearAt = clearAfterSeconds > 0 ? DateTime.UtcNow.AddSeconds(clearAfterSeconds) : DateTime.MaxValue; return true; }
+            owner = 0; // window may have been recreated; look it up again
+        }
+        return false;
+    }
+
+    private static bool TrySet(string text)
+    {
+        if (!Open()) { LastError = "clipboard is busy (another app has it open)"; return false; }
         try
         {
-            EmptyClipboard();
+            if (!EmptyClipboard()) { LastError = "could not empty the clipboard"; return false; }
             var h = Alloc(Encoding.Unicode.GetBytes(text + "\0"));
-            if (h == 0 || SetClipboardData(CF_UNICODETEXT, h) == 0) { if (h != 0) GlobalFree(h); return false; }
+            if (h == 0 || SetClipboardData(CF_UNICODETEXT, h) == 0) { if (h != 0) GlobalFree(h); LastError = "could not write to the clipboard"; return false; }
             var zero = BitConverter.GetBytes(0u);
             foreach (var f in new[] { "CanIncludeInClipboardHistory", "CanUploadToCloudClipboard" })
             { var hz = Alloc(zero); if (hz != 0 && SetClipboardData(RegisterClipboardFormat(f), hz) == 0) GlobalFree(hz); }
             var hx = Alloc(zero); if (hx != 0 && SetClipboardData(RegisterClipboardFormat("ExcludeClipboardContentFromMonitorProcessing"), hx) == 0) GlobalFree(hx);
         }
         finally { CloseClipboard(); }
-        ourSeq = GetClipboardSequenceNumber();
-        clearAt = clearAfterSeconds > 0 ? DateTime.UtcNow.AddSeconds(clearAfterSeconds) : DateTime.MaxValue;
         return true;
     }
 

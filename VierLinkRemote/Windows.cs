@@ -15,6 +15,7 @@ public sealed class MainWindow : Window
     private string? exportPreview, exportBlob;
     private bool exportReveal;
     private string? exportNote;
+    private string? copyNote; private bool copyFailed;
 
     public MainWindow() : base("VierLink Remote") { Size = new Vector2(620, 600); SizeCondition = ImGuiCond.FirstUseEver; IsOpen = !Plugin.Allowed; }
 
@@ -71,7 +72,12 @@ public sealed class MainWindow : Window
             ImGui.TextWrapped("This is exactly what is inside the encrypted text below. Only the token owner can decrypt it.");
             var pv = exportPreview;
             ImGui.InputTextMultiline("##pv", ref pv, 200000, new Vector2(-1, 180), ImGuiInputTextFlags.ReadOnly);
-            if (ImGui.Button("Copy encrypted export to clipboard")) SecureClipboard.Set(exportBlob);
+            if (ImGui.Button("Copy encrypted export to clipboard"))
+            {
+                copyFailed = !SecureClipboard.Set(exportBlob);
+                copyNote = copyFailed ? "Copy failed: " + SecureClipboard.LastError + ". Try again." : "Export copied.";
+            }
+            if (copyNote != null) { if (copyFailed) ImGui.TextColored(Warn, copyNote); else ImGui.TextDisabled(copyNote); }
             ImGui.SameLine(); if (ImGui.Button("Discard")) { exportPreview = null; exportBlob = null; }
         }
 

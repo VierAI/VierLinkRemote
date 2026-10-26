@@ -144,7 +144,7 @@ public sealed class ViewerWindow : Window
         else
         {
             ImGui.Text((joined ? "Tester connected" : "Waiting for tester") + " - expires " + DateTimeOffset.FromUnixTimeSeconds(exp).ToLocalTime().ToString("HH:mm"));
-            if (token != null) { if (ImGui.Button("Copy session token")) { SecureClipboard.Set(token, 60); Note("token copied; clipboard clears in 60 s"); } ImGui.SameLine(); ImGui.TextDisabled("(single use)"); }
+            if (token != null) { if (ImGui.Button("Copy session token")) { Note(SecureClipboard.Set(token, 60) ? "token copied; clipboard clears in 60 s" : "ERROR: token NOT copied (" + SecureClipboard.LastError + "); try again"); } ImGui.SameLine(); ImGui.TextDisabled("(single use)"); }
             if (joined && ImGui.Button("Ask for a fresh snapshot")) { var r = relay; _ = Task.Run(async () => { try { await r.SendAsync("{\"t\":\"refresh\"}"); } catch { } }); }
             ImGui.SameLine(); if (ImGui.Button("End session")) EndAll("ended by you");
         }

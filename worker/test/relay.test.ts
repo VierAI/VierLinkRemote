@@ -101,3 +101,38 @@ describe("size caps", () => {
     await t.wait(() => t.closed !== null); expect(t.closed).not.toBeNull();
   });
 });
+
+describe("join check races (N3)", () => {
+  it("a duplicate hello on the same socket does not drop it", async () => {
+    const sid = newSid(), auth = rnd(32); await seed(sid, auth);
+    const t = await open(sid, "tester"); const m = await joinMsg(sid, auth);
+    t.ws.send(m); t.ws.send(m); t.ws.send(m);
+    await t.wait(() => t.msgs.length > 0 || t.closed !== null);
+    await new Promise(r => setTimeout(r, 100));
+    expect(t.msgs[0]).toBe('{"t":"ok"}'); expect(t.closed).toBeNull();
+  });
+
+  it("a concurrent wrong-MAC join does not block the real one", async () => {
+    for (let i = 0; i < 5; i++) {
+      const sid = newSid(), auth = rnd(32); await seed(sid, auth);
+      const bad = await open(sid, "tester"), good = await open(sid, "tester");
+      const [mb, mg] = [await joinMsg(sid, auth, false), await joinMsg(sid, auth)];
+      bad.ws.send(mb); good.ws.send(mg);
+      await good.wait(() => good.msgs.length > 0 || good.closed !== null);
+      expect(good.msgs[0]).toBe('{"t":"ok"}');
+    }
+  });
+
+  it("a disconnect during the join check leaves the token unused", async () => {
+    const sid = newSid(), auth = rnd(32); await seed(sid, auth);
+    const ns = (env as any).SESSIONS as DurableObjectNamespace;
+    const stub: any = ns.get(ns.idFromName(sid));
+    const r = await (runInDurableObject as any)(stub, async (inst: any) => {
+      const ok = await inst.authTester(sid, JSON.parse(await joinMsg(sid, auth)), () => false);
+      return { ok, consumed: inst.meta.consumed, claimed: inst.testerClaimed };
+    });
+    expect(r).toEqual({ ok: false, consumed: false, claimed: false });
+    const t = await open(sid, "tester"); t.ws.send(await joinMsg(sid, auth));
+    await t.wait(() => t.msgs.length > 0 || t.closed !== null); expect(t.msgs[0]).toBe('{"t":"ok"}');
+  });
+});
