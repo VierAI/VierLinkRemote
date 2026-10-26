@@ -1,0 +1,17 @@
+# AI generated code. Not deployed. The route/hostname is chosen before release.
+name = "relay"
+main = "src/index.ts"
+compatibility_date = "2026-10-01"
+workers_dev = false
+# routes = [{ pattern = "<neutral-hostname>", custom_domain = true }]
+
+[observability]
+enabled = false
+
+[[durable_objects.bindings]]
+name = "SESSIONS"
+class_name = "Session"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Session"]

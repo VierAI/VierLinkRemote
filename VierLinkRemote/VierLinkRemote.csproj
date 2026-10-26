@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project Sdk="Dalamud.NET.Sdk/15.0.0">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyName>VierLinkRemote</AssemblyName>
+    <InternalName>VierLinkRemote</InternalName>
+    <Name>VierLink Remote</Name>
+    <Author>VierAI</Author>
+    <Punchline>Read-only, opt-in sync-debug snapshots for one invited viewer (AI generated code).</Punchline>
+    <Description>Lets a person you invite see how they and your synced pairs render on your client, to debug outfit and mod sync. Starts disabled. Read only: sync state, mod counts, equipped item names, Customize+ on/off. No chat, no file paths. Connects out only; never listens. Nothing is stored on disk.&#10;&#10;AI generated code.</Description>
+    <Tags>Tools;AI</Tags>
+    <DalamudApiLevel>15</DalamudApiLevel>
+    <Version>0.1.0.0</Version>
+    <Configurations>Release;Debug</Configurations>
+    <Platforms>x64</Platforms>
+    <ProduceReferenceAssembly>false</ProduceReferenceAssembly>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\Shared\*.cs" Link="Shared\%(Filename)%(Extension)" />
+    <PackageReference Include="BouncyCastle.Cryptography" Version="2.6.2" />
+  </ItemGroup>
+</Project>
