@@ -14,7 +14,7 @@ namespace VierLinkRemote.Shared;
 public static class Pinned
 {
     // Placeholder until a neutral hostname is chosen; connecting is refused while it ends in ".invalid".
-    public const string RelayHost = "relay-host.invalid";
+    public const string RelayHost = "relay.lafxrfz8x1.workers.dev";
     public const string XPub = "0BSjtgkq7MLcNveyw60nMOpcGrJXj4GJ-RWPcDKx3D8";
     public const string EdPub = "IoYptqyr-rn4SptqhjHxcDIAnxexZFpsa5zG4av3jiM";
     /// <summary>First 16 bytes of SHA-256(XPub || EdPub), hex.</summary>
