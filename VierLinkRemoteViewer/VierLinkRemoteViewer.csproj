@@ -13,7 +13,7 @@
     <Description>Receiver for VierLink Remote. Needs the private key bundle pasted at session start; it stays in memory only. Snapshots are display-only and never applied.&#10;&#10;AI generated code.</Description>
     <Tags>Tools;AI</Tags>
     <DalamudApiLevel>15</DalamudApiLevel>
-    <Version>0.1.0.0</Version>
+    <Version>0.1.1.0</Version>
     <Configurations>Release;Debug</Configurations>
     <Platforms>x64</Platforms>
     <ProduceReferenceAssembly>false</ProduceReferenceAssembly>

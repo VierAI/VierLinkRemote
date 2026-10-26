@@ -1,0 +1,12 @@
+{
+  "name": "vierlink-remote-receiver",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Headless receiver (creator side) for VierLink Remote, loaded as a module by a host process. AI generated code.",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": { ".": "./src/index.js" },
+  "bin": { "vlr-receiver": "src/cli.js" },
+  "engines": { "node": ">=22" },
+  "scripts": { "test": "node --test" }
+}
