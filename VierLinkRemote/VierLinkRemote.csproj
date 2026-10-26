@@ -10,10 +10,10 @@
     <Name>VierLink Remote</Name>
     <Author>VierAI</Author>
     <Punchline>Read-only, opt-in sync-debug snapshots for one invited viewer (AI generated code).</Punchline>
-    <Description>Lets a person you invite (viewed through their automated assistant) see how they and your synced pairs render on your client, to debug outfit and mod sync. Starts disabled. Read only: sync state, mod counts, equipped item names, Customize+ on/off. No chat, no file paths. Connects out only; never listens. Nothing is stored on your disk.&#10;&#10;AI generated code.</Description>
+    <Description>Lets the token owner's AI assistant, through a session token you accept, see how the owner and your synced pairs render on your client, to debug outfit and mod sync. Starts disabled. Read only: sync state, mod counts, equipped item names, Customize+ on/off. No chat, no file paths. Connects out only; never listens. Nothing is stored on your disk.&#10;&#10;AI generated code.</Description>
     <Tags>Tools;AI</Tags>
     <DalamudApiLevel>15</DalamudApiLevel>
-    <Version>0.1.1.2</Version>
+    <Version>0.1.1.3</Version>
     <Configurations>Release;Debug</Configurations>
     <Platforms>x64</Platforms>
     <ProduceReferenceAssembly>false</ProduceReferenceAssembly>
