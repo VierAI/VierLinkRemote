@@ -10,7 +10,7 @@ viewer. A host process loads it; it is not a service, daemon or scheduled job, a
 ```js
 import { createModule } from "<repo>/receiver/src/index.js";
 const vlr = createModule({ config, getSecret, log });
-await vlr.start();          // loads keys + webhook from the vault, wipes snapshotDir, opens 127.0.0.1:<http.port>
+await vlr.start();          // loads keys + webhook from the vault, wipes snapshotDir
 const { session, token, expiresAt } = await vlr.startSession();
 vlr.refresh(session);       // ask the tester for a fresh snapshot
 vlr.end(session);           // End: closes the session and deletes its snapshot files now
@@ -29,10 +29,11 @@ await vlr.stop();           // ends sessions, wipes keys from memory and the sna
 | Key | Default | Meaning |
 |---|---|---|
 | `snapshotDir` | (required) | Dedicated folder, created 0700. Files are 0600 `<session>-<seq>.json`. Wiped at start and stop. |
-| `retentionHours` | 24 | Snapshot files are deleted this long after their session ends (tester left, relay closed, expiry). An explicit End deletes them at once. Timers live in the host process. |
+| `retentionHours` | 24 | Snapshot files are deleted this long after their session ends (tester left, relay closed, expiry). An explicit End deletes them at once. Capped at 500. A periodic sweep (by file age) also removes leftovers; start() always wipes the folder, so the host should call start() at launch. |
 | `maxSessions` | 2 | Concurrent live sessions. |
-| `http.enabled` | true | Local HTTP interface. |
+| `http.enabled` | false | Optional local HTTP interface. Off: the host calls the module functions directly. |
 | `http.port` | 17361 | Bound to 127.0.0.1 only. 17346 is refused. |
+| `http.tokenFile` | unset | If set, the per-start bearer token is written there (0600) and deleted on stop. |
 | `keysItem` / `keysField` | `VierLink Remote keys` / `password` | Vault item holding `vlrk1.<x25519>.<ed25519>`; must match the pinned public keys. |
 | `webhookEnabled` | true | Post each snapshot to XIV Crash Bot. |
 | `webhookItem` | `XIV Crash Bot webhook` | Vault item for the webhook. |
@@ -42,7 +43,11 @@ await vlr.stop();           // ends sessions, wipes keys from memory and the sna
 
 No URL, key or identifier belongs in config files or git; the webhook URL and bearer come only from the vault.
 
-## Local HTTP (127.0.0.1 only; requests with an `Origin` header or another `Host` are refused)
+## Local HTTP (off by default)
+
+When enabled: 127.0.0.1 only; requests with an `Origin` header or another `Host` are refused, and every request needs
+`Authorization: Bearer <token>`. The token is random, new at every start, compared in constant time, and available
+to the host as `vlr.httpToken()` (and in `http.tokenFile` if set).
 
 | Method | Path | Result |
 |---|---|---|
@@ -52,13 +57,15 @@ No URL, key or identifier belongs in config files or git; the webhook URL and be
 | POST | `/export` | body `{"text":"vlrx1..."}` -> decrypted export |
 | GET | `/sessions` | status |
 
-`src/cli.js` is a thin client for these routes: `node receiver/src/cli.js start-session`.
+`src/cli.js` is a thin client for these routes: `node receiver/src/cli.js --token-file <file> start-session`.
 
 ## Webhook
 
 Each snapshot is sent once: `POST <url>` with `Authorization: Bearer <key>` and JSON `{session, path, summary}`.
+`path` is the file name relative to `snapshotDir` (never an absolute path). Redirects are refused.
 `summary` holds counts and fixed values only (mode, reveal, players, paired, ownerVisible, states, trimmed, error).
-A 2xx response is final. Failures are retried twice (10 s, then 20 s later), then dropped.
+A 2xx response is final. Network errors, 5xx, 408 and 429 are retried twice (10 s, then 20 s later), then dropped;
+other 4xx responses are not retried.
 
 ## Notes
 
@@ -66,3 +73,18 @@ A 2xx response is final. Failures are retried twice (10 s, then 20 s later), the
 - Reveal is the tester's switch in the plugin (their consent). The receiver reports it (`summary.reveal`) but cannot turn it on.
 - Snapshot files are untrusted data from another player's client and are labelled as such.
 - Tests: `cd receiver && node --test` (throwaway keys, fake relay, no network).
+
+## Mac host config (Mac Script Master)
+
+Requires Node 22 or newer (built-in `WebSocket` and `fetch`). `<HOME>` is the Mac user's home folder.
+
+```json
+{
+  "snapshotDir": "<HOME>/<master>/state/vierlink-remote",
+  "secretCommand": ["<HOME>/<vault-helper>/get-secret", "{item}", "{field}"],
+  "retentionHours": 24,
+  "http": { "enabled": false, "port": 17361 }
+}
+```
+
+If the HTTP interface is ever enabled, keep port 17361 and read the bearer from `vlr.httpToken()`.

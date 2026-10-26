@@ -1,15 +1,21 @@
 // AI generated code. Optional local HTTP interface. Binds 127.0.0.1 only; refuses browser (Origin) and foreign Host headers.
 import http from "node:http";
+import crypto from "node:crypto";
 
 const json = (res, code, obj) => { res.writeHead(code, { "Content-Type": "application/json", "Cache-Control": "no-store" }); res.end(JSON.stringify(obj)); };
 
-export function createHttpServer(receiver, { port }) {
+/** token: random bearer generated per start; every request must send `Authorization: Bearer <token>`. */
+export function createHttpServer(receiver, { port, token }) {
+  if (typeof token !== "string" || token.length < 32) throw new Error("http interface needs a per-start bearer token");
+  const want = crypto.createHash("sha256").update(`Bearer ${token}`).digest();
+  const authorized = (h) => crypto.timingSafeEqual(crypto.createHash("sha256").update(String(h ?? "")).digest(), want);
   if (!Number.isInteger(port) || port < 1024 || port > 65535 || port === 17346) throw new Error("http.port must be 1024-65535 and not 17346");
   const hosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
   const server = http.createServer(async (req, res) => {
     try {
       if (req.headers.origin !== undefined) return json(res, 403, { error: "browser requests refused" });
       if (!hosts.has(String(req.headers.host))) return json(res, 421, { error: "bad host" });
+      if (!authorized(req.headers.authorization)) return json(res, 401, { error: "unauthorized" });
       const url = new URL(req.url, `http://127.0.0.1:${port}`);
       if (url.search) return json(res, 400, { error: "no query strings" });
       let body = "";

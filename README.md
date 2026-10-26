@@ -7,7 +7,7 @@ Two Dalamud plugins and one Cloudflare Worker:
 | Folder | What |
 |---|---|
 | `VierLinkRemote/` | Tester plugin. Installs disabled, big disclaimer, scope-versioned consent. One-click encrypted clipboard export, and live sessions via a signed single-use token. Outgoing connections only. Nothing stored on disk except the enable/consent flags. |
-| `VierLinkRemoteViewer/` | Receiver plugin. Paste the key bundle (memory only), start a session, copy the token, decrypt and view snapshots (display only, never applied). |
+| `receiver/` | Headless receiver (Node module loaded by a host). Mints tokens, decrypts snapshots and exports. Replaces the retired in-game viewer plugin. See receiver/README.md. |
 | `Shared/` | Pinned public keys, token format, crypto (X25519 + HKDF-SHA256 + AES-256-GCM, Ed25519 signatures), relay client. |
 | `worker/` | Relay Worker + Durable Object. Routes ciphertext only. |
 

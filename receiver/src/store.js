@@ -18,9 +18,9 @@ export class SnapshotStore {
     this.wipe();
   }
   write(sid, seq, obj) {
-    const file = path.join(this.dir, `${sid}-${seq}.json`);
-    fs.writeFileSync(file, JSON.stringify(obj, null, 2), { mode: 0o600, flag: "wx" });
-    return file;
+    const name = `${sid}-${seq}.json`;
+    fs.writeFileSync(path.join(this.dir, name), JSON.stringify(obj, null, 2), { mode: 0o600, flag: "wx" });
+    return name; // relative to the snapshot folder
   }
   /** Deletes our files for one session (sid) or all of them. Returns the count. */
   wipe(sid) {
@@ -31,6 +31,17 @@ export class SnapshotStore {
       if (!OURS.test(f)) continue;
       if (sid && !f.startsWith(sid + "-")) continue;
       try { fs.rmSync(path.join(this.dir, f), { force: true }); n++; } catch { /* ignore */ }
+    }
+    return n;
+  }
+  /** Deletes our files older than maxAgeMs (by mtime) unless their session is still kept. */
+  sweep(maxAgeMs, keepSids = new Set()) {
+    let names = [];
+    try { names = fs.readdirSync(this.dir); } catch { return 0; }
+    let n = 0; const cutoff = Date.now() - maxAgeMs;
+    for (const f of names) {
+      if (!OURS.test(f) || keepSids.has(f.slice(0, 22))) continue;
+      try { const p = path.join(this.dir, f); if (fs.statSync(p).mtimeMs < cutoff) { fs.rmSync(p, { force: true }); n++; } } catch { /* ignore */ }
     }
     return n;
   }

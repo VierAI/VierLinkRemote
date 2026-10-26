@@ -106,7 +106,9 @@ test("snapshots: decrypt, lastSeq, file 0600, webhook once with bearer, refresh,
   assert.deepEqual(rec.summary.states, { loaded: 1, other: 1 }); // unknown state value never passes through
   assert.equal(hooks.length, 2);
   assert.equal(hooks[0].url, HOOK_URL); assert.equal(hooks[0].init.headers.Authorization, `Bearer ${HOOK_KEY}`);
+  assert.equal(hooks[0].init.redirect, "error");
   const hb = JSON.parse(hooks[0].init.body);
+  assert.equal(hb.path, files[0]); // relative file name, never an absolute path
   assert.deepEqual(Object.keys(hb), ["session", "path", "summary"]); assert.equal(hb.session, body.sid);
   assert.ok(!JSON.stringify(hb).includes("Firstname"));
   mod.refresh(r.session); assert.equal(ws.sent.at(-1), '{"t":"refresh"}');
@@ -132,6 +134,51 @@ test("tester leaving keeps files for the retention period; explicit End wipes", 
   assert.equal(mod.status()[0].ended, true);
   await mod.stop(); // stop wipes everything
   assert.equal(fs.readdirSync(dir).length, 0);
+});
+
+test("a failing store.write or bad relay data never throws into the host", async () => {
+  const { mod } = make();
+  await mod.start();
+  const r = await mod.startSession(); const body = readToken(r.token); const ws = FakeWS.last;
+  mod.receiver.store.write = () => { const e = new Error("disk full"); e.code = "ENOSPC"; throw e; };
+  const snap = () => ({ t: "data", d: C.b64u(C.seal(Buffer.from("{}"), C.unb64u(keys.xpub), C.unb64u(body.k), C.unb64u(body.sid), 1)) });
+  assert.doesNotThrow(() => ws.relay(snap()));
+  assert.doesNotThrow(() => ws.emit("message", { data: new Uint8Array([0xff, 0xfe]) }));
+  assert.doesNotThrow(() => ws.relay({ t: "data", d: 42 }));
+  assert.ok(mod.status()[0].log.some((l) => l.includes("ENOSPC")));
+  await mod.stop();
+  assert.equal(mod.status().length, 0); // session map cleared on stop
+});
+
+test("start failure zeroes keys; retention is capped", async () => {
+  const rcv = new Receiver({ config: { snapshotDir: path.join(tmp(), "s") }, getSecret: async (i, f) => (f === "uri" ? "http://plain" : secrets[`${i}|${f}`]), WebSocket: FakeWS, pins });
+  await assert.rejects(() => rcv.start(), /https/);
+  assert.equal(rcv.keys, null); assert.equal(rcv.started, false);
+  assert.equal(new Receiver({ config: { snapshotDir: path.join(tmp(), "s"), retentionHours: 10_000 } }).cfg.retentionHours, 500);
+  assert.throws(() => new Receiver({ config: { snapshotDir: path.join(tmp(), "s"), retentionHours: 0 } }), /retentionHours/);
+});
+
+test("retention sweep deletes old files of finished sessions only", async () => {
+  const { mod, dir } = make();
+  await mod.start();
+  const old = `${C.b64u(C.random(16))}-1.json`, fresh = `${C.b64u(C.random(16))}-1.json`;
+  fs.writeFileSync(path.join(dir, old), "{}"); fs.writeFileSync(path.join(dir, fresh), "{}");
+  const past = new Date(Date.now() - 25 * 3600_000); fs.utimesSync(path.join(dir, old), past, past);
+  assert.equal(mod.receiver.store.sweep(24 * 3600_000), 1);
+  assert.deepEqual(fs.readdirSync(dir), [fresh]);
+  await mod.stop();
+});
+
+test("webhook: 4xx other than 408/429 is not retried", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { mod, hooks } = make({ hookStatus: 401 });
+  await mod.start();
+  const r = await mod.startSession(); const body = readToken(r.token); const ws = FakeWS.last;
+  ws.relay({ t: "data", d: C.b64u(C.seal(Buffer.from("{}"), C.unb64u(keys.xpub), C.unb64u(body.k), C.unb64u(body.sid), 1)) });
+  await Promise.resolve(); await Promise.resolve();
+  t.mock.timers.tick(60_000); await Promise.resolve(); await Promise.resolve();
+  assert.equal(hooks.length, 1);
+  await mod.stop();
 });
 
 test("webhook: no retry after 2xx, retries after failure", async (t) => {
@@ -164,19 +211,32 @@ test("refuses to start without keys or with a non-https webhook; never leaks sec
 
 test("local HTTP: 127.0.0.1 only, refuses Origin and foreign Host, never port 17346", async () => {
   const { createHttpServer } = await import("../src/http.js");
-  assert.throws(() => createHttpServer({}, { port: 17346 }), /17346/);
+  assert.throws(() => createHttpServer({}, { port: 17346, token: "x".repeat(43) }), /17346/);
+  assert.throws(() => createHttpServer({}, { port: 17999 }), /token/);
   const port = 20000 + Math.floor(Math.random() * 30000);
   const dir = tmp();
-  const mod = createModule({ config: { snapshotDir: path.join(dir, "s"), webhookEnabled: false, http: { port } }, getSecret, WebSocket: FakeWS, pins });
+  const mod = createModule({ config: { snapshotDir: path.join(dir, "s"), webhookEnabled: false, http: { enabled: true, port, tokenFile: path.join(dir, "tok") } }, getSecret, WebSocket: FakeWS, pins });
   await mod.start();
   try {
-    let r = await fetch(`http://127.0.0.1:${port}/sessions`); assert.equal(r.status, 200);
-    r = await fetch(`http://127.0.0.1:${port}/sessions`, { headers: { Origin: "https://evil.example" } }); assert.equal(r.status, 403);
+    const tok = mod.httpToken(); assert.equal(fs.readFileSync(path.join(dir, "tok"), "utf8"), tok);
+    if (process.platform !== "win32") assert.equal(fs.statSync(path.join(dir, "tok")).mode & 0o777, 0o600);
+    const A = { Authorization: `Bearer ${tok}` };
+    let r = await fetch(`http://127.0.0.1:${port}/sessions`); assert.equal(r.status, 401);
+    r = await fetch(`http://127.0.0.1:${port}/sessions`, { headers: { Authorization: "Bearer wrong" } }); assert.equal(r.status, 401);
+    r = await fetch(`http://127.0.0.1:${port}/sessions`, { headers: A }); assert.equal(r.status, 200);
+    r = await fetch(`http://127.0.0.1:${port}/sessions`, { headers: { ...A, Origin: "https://evil.example" } }); assert.equal(r.status, 403);
     const http = await import("node:http");
-    const code = await new Promise((res, rej) => http.get({ host: "127.0.0.1", port, path: "/sessions", headers: { Host: "evil.example" } }, (x) => { x.resume(); res(x.statusCode); }).on("error", rej));
+    const code = await new Promise((res, rej) => http.get({ host: "127.0.0.1", port, path: "/sessions", headers: { Host: "evil.example", ...A } }, (x) => { x.resume(); res(x.statusCode); }).on("error", rej));
     assert.equal(code, 421);
     assert.equal(mod.receiver.cfg.http.port, port);
-    r = await fetch(`http://127.0.0.1:${port}/start-session`, { method: "POST" }); const j = await r.json();
+    r = await fetch(`http://127.0.0.1:${port}/start-session`, { method: "POST", headers: A }); const j = await r.json();
     assert.equal(readToken(j.token).sid, j.session);
   } finally { await mod.stop(); }
+  assert.equal(fs.existsSync(path.join(dir, "tok")), false);
+  assert.equal(mod.httpToken(), null);
+});
+
+test("http interface is off by default", async () => {
+  const { mod } = make();
+  await mod.start(); assert.equal(mod.httpToken(), null); await mod.stop();
 });

@@ -33,8 +33,9 @@ public sealed class MainWindow : Window
             "This plugin lets ONE person who gives you a signed session token see how they and the players you are synced with " +
             "through PlayerSync appear on YOUR game, to debug outfit and mod sync. It is read only and only sends what you allow.\n\n" +
             "WHO VIEWS IT: live sessions and exports are received and read by an AUTOMATED ASSISTANT (an AI bot) run by the token owner, " +
-            "not only by a person. It decrypts each snapshot, may keep it for up to 24 hours after the session ends, and may pass a " +
-            "short summary (counts only, no names) to the owner's other bots.\n\n" +
+            "not only by a person. The FULL snapshot (including the names it contains) is decrypted and read by the owner's automated " +
+            "analysis assistant, which may keep it for up to 24 hours after the session ends. Only that assistant's findings, with no " +
+            "names, are passed to the owner's other bots.\n\n" +
             "What can be shared, per player within about 50 yalms who is drawn on your screen and is either a PlayerSync pair or the token's owner:\n" +
             " - PlayerSync sync state, status, last-apply time, and a per-session hash of the applied data\n" +
             " - Penumbra: counts of modded, missing and empty files, plus which game items are modded\n" +
