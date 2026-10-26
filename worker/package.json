@@ -1,1 +1,17 @@
-{"name":"relay","private":true,"scripts":{"check":"tsc --noEmit","dry":"wrangler deploy --dry-run --outdir dist"},"devDependencies":{"@cloudflare/workers-types":"^5.20261026.1","typescript":"^7.0.2","wrangler":"^4.152.0"}}
+{
+  "name": "relay",
+  "private": true,
+  "scripts": {
+    "check": "tsc --noEmit",
+    "dry": "wrangler deploy --dry-run --outdir dist",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.4.7",
+    "@cloudflare/workers-types": "^5.20261026.1",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.12",
+    "wrangler": "^4.152.0"
+  },
+  "type": "module"
+}

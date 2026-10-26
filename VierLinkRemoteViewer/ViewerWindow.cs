@@ -21,6 +21,7 @@ public sealed class ViewerWindow : Window
     private byte[]? k, sidB; private string? sid, token; private long exp;
     private RelayClient? relay;
     private bool joined;
+    private ulong lastSeq;
     private readonly List<string> log = new();
     private readonly List<(DateTime at, ulong seq, string text)> snaps = new();
     private string exportInput = "";
@@ -55,7 +56,7 @@ public sealed class ViewerWindow : Window
         token = Crypto.MakeToken(new TokenBody { sid = sid, url = Pinned.RelayBase, k = B64.Enc(k), exp = exp, self = self }, edPriv);
         var auth = B64.Enc(Crypto.AuthKey(k, sidB)); var ts = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         var hello = JsonSerializer.Serialize(new { t = "create", sid, exp, auth, ts, sig = B64.Enc(Crypto.Sign(edPriv, Crypto.CreateProofMessage(sid, exp, auth, ts))) });
-        relay = new RelayClient(); joined = false; snaps.Clear();
+        relay = new RelayClient(); joined = false; lastSeq = 0; snaps.Clear();
         var r = relay;
         Task.Run(async () => { try { await r.ConnectAsync(sid, "creator", hello); } catch (Exception e) { r.CloseReason = e.Message; r.Closed = true; } });
         Note("session created; give the tester the token (valid 1 h, single use)");
@@ -72,9 +73,9 @@ public sealed class ViewerWindow : Window
             switch (t)
             {
                 case "ok": Note("relay accepted the session"); break;
-                case "joined": joined = true; token = null; Note("tester joined; token consumed"); break;
+                case "joined": joined = true; token = null; SecureClipboard.ClearIfOurs(); Note("tester joined; token consumed"); break;
                 case "data" when d != null && xPriv != null && k != null && sidB != null:
-                    try { var pt = Crypto.Open(B64.Dec(d), xPriv, k, sidB, out var seq); snaps.Add((DateTime.Now, seq, Sanitize(Encoding.UTF8.GetString(pt)))); if (snaps.Count > 20) snaps.RemoveAt(0); Note($"snapshot #{seq} decrypted"); }
+                    try { var pt = Crypto.Open(B64.Dec(d), xPriv, k, sidB, out var seq); if (seq <= lastSeq) { Note($"snapshot #{seq} replayed or out of order; dropped"); break; } lastSeq = seq; snaps.Add((DateTime.Now, seq, Sanitize(Encoding.UTF8.GetString(pt)))); if (snaps.Count > 20) snaps.RemoveAt(0); Note($"snapshot #{seq} decrypted"); }
                     catch { Note("snapshot failed to decrypt; dropped"); }
                     break;
                 case "end": EndAll("tester ended the session"); return;
@@ -113,7 +114,7 @@ public sealed class ViewerWindow : Window
         {
             ImGui.TextWrapped("Paste the key bundle from the vault item 'VierLink Remote keys' (kept in memory only; wiped on End, window close or unload).");
             ImGui.InputText("Key bundle", ref keyInput, 512, ImGuiInputTextFlags.Password);
-            if (ImGui.Button("Load keys")) LoadKeys();
+            if (ImGui.Button("Load keys")) { var raw = keyInput; try { if (ImGui.GetClipboardText() == raw) SecureClipboard.Clear(); } catch { } LoadKeys(); }
             if (keyStatus != null) ImGui.TextWrapped(keyStatus);
             return;
         }
@@ -126,7 +127,13 @@ public sealed class ViewerWindow : Window
         ImGui.SameLine();
         if (ImGui.Button("Decrypt"))
         {
-            try { var p = exportInput.Trim().Split('.'); if (p.Length != 3 || p[0] != "vlrx1") throw new FormatException(); var s = B64.Dec(p[1]); snaps.Add((DateTime.Now, 0, Sanitize(Encoding.UTF8.GetString(Crypto.Open(B64.Dec(p[2]), xPriv, null, s, out _))))); Note("export decrypted"); }
+            try
+            {
+                var txt = Crypto.OpenExport(exportInput, xPriv, out var at);
+                var age = DateTimeOffset.UtcNow - at;
+                snaps.Add((at.LocalDateTime, 0, Sanitize(txt)));
+                Note($"export made {at.ToLocalTime():MMM d HH:mm} decrypted" + (age > TimeSpan.FromHours(24) || age < TimeSpan.FromMinutes(-5) ? " (WARNING: old or future timestamp)" : "") + "; exports are not proof of who made them");
+            }
             catch { Note("export did not decrypt"); }
             exportInput = "";
         }
@@ -137,7 +144,7 @@ public sealed class ViewerWindow : Window
         else
         {
             ImGui.Text((joined ? "Tester connected" : "Waiting for tester") + " - expires " + DateTimeOffset.FromUnixTimeSeconds(exp).ToLocalTime().ToString("HH:mm"));
-            if (token != null) { if (ImGui.Button("Copy session token")) ImGui.SetClipboardText(token); ImGui.SameLine(); ImGui.TextDisabled("(single use)"); }
+            if (token != null) { if (ImGui.Button("Copy session token")) { SecureClipboard.Set(token, 60); Note("token copied; clipboard clears in 60 s"); } ImGui.SameLine(); ImGui.TextDisabled("(single use)"); }
             if (joined && ImGui.Button("Ask for a fresh snapshot")) { var r = relay; _ = Task.Run(async () => { try { await r.SendAsync("{\"t\":\"refresh\"}"); } catch { } }); }
             ImGui.SameLine(); if (ImGui.Button("End session")) EndAll("ended by you");
         }

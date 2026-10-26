@@ -27,6 +27,7 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IFramework Framework { get; private set; } = null!;
     [PluginService] internal static IDataManager Data { get; private set; } = null!;
     [PluginService] internal static ICommandManager Commands { get; private set; } = null!;
+    [PluginService] internal static IClientState Client { get; private set; } = null!;
 
     internal static Config Cfg = new();
     internal static Session? Current;
@@ -44,13 +45,17 @@ public sealed class Plugin : IDalamudPlugin
         Pi.UiBuilder.OpenConfigUi += () => Main.IsOpen = true;
         Commands.AddHandler("/vlremote", new CommandInfo((_, _) => Main.Toggle()) { HelpMessage = "Open VierLink Remote (disclaimer, export, sessions)." });
         Framework.Update += OnUpdate;
+        Client.Logout += OnLogout;
     }
+
+    private void OnLogout(int type, int code) => Current?.End("logged out");
 
     internal static bool Allowed => Cfg.Enabled && Cfg.ConsentedScope == Shared.Pinned.Scope;
     internal static void Save() => Pi.SavePluginConfig(Cfg);
 
     private void OnUpdate(IFramework _)
     {
+        Shared.SecureClipboard.Tick();
         try { Current?.Tick(); } catch (Exception e) { Current?.Note("error: " + e.GetType().Name); }
         if (Current != null && !Allowed) Current.End("plugin disabled");
     }
@@ -58,6 +63,7 @@ public sealed class Plugin : IDalamudPlugin
     public void Dispose()
     {
         Framework.Update -= OnUpdate;
+        Client.Logout -= OnLogout;
         Current?.End("plugin unloaded");
         Commands.RemoveHandler("/vlremote");
         Pi.UiBuilder.Draw -= ws.Draw;

@@ -23,6 +23,8 @@ public sealed class Session
     private RelayClient? relay;
     private ulong seq;
     private DateTime nextAuto = DateTime.MinValue;
+    public static readonly TimeSpan IdleLimit = TimeSpan.FromMinutes(15);
+    private DateTime lastActivity = DateTime.UtcNow;
 
     public Session(TokenBody t)
     {
@@ -45,13 +47,20 @@ public sealed class Session
         Task.Run(async () => { try { await r.ConnectAsync(sid, "tester", hello); } catch (Exception e) { r.CloseReason = e.Message; r.Closed = true; } });
     }
 
-    public void Capture() { Pending = Collector.Build(Ctx, "live"); Note("snapshot captured (" + Pending.Length + " chars)" + (AutoSend ? "" : "; waiting for you to press Send")); }
+    public void Capture()
+    {
+        Pending = Collector.Build(Ctx, "live", out var trimmed);
+        if (trimmed > 0) Note($"snapshot too large, trimmed: {trimmed} player(s) left out");
+        Note("snapshot captured (" + Pending.Length + " chars)" + (AutoSend ? "" : "; waiting for you to press Send"));
+    }
 
     public void SendPending()
     {
         if (Pending == null || relay == null || !Connected) return;
         var blob = Crypto.Seal(Encoding.UTF8.GetBytes(Pending), B64.Dec(Pinned.XPub), k, sidBytes, ++seq);
         var msg = JsonSerializer.Serialize(new { t = "data", d = B64.Enc(blob) });
+        if (Encoding.UTF8.GetByteCount(msg) > RelayClient.MaxFrame) { Note("snapshot too large to send; dropped"); Pending = null; return; }
+        lastActivity = DateTime.UtcNow;
         Pending = null;
         var r = relay; _ = Task.Run(async () => { try { await r.SendAsync(msg); } catch (Exception e) { Note("send failed: " + e.GetType().Name); } });
         Note($"sent encrypted snapshot #{seq} ({blob.Length} bytes)");
@@ -63,13 +72,14 @@ public sealed class Session
         if (Ended) return;
         if (DateTimeOffset.UtcNow.ToUnixTimeSeconds() >= Exp) { End("token expired"); return; }
         if (relay == null) return;
+        if (DateTime.UtcNow - lastActivity > IdleLimit) { End("idle for 15 minutes"); return; }
         while (relay.Inbox.TryDequeue(out var m))
         {
             string? t = null; try { t = JsonDocument.Parse(m).RootElement.GetProperty("t").GetString(); } catch { }
             switch (t)
             {
                 case "ok": Connected = true; Note("connected; the viewer can now request snapshots"); Capture(); break;
-                case "refresh": Note("viewer asked for a fresh snapshot"); Capture(); break;
+                case "refresh": lastActivity = DateTime.UtcNow; Note("viewer asked for a fresh snapshot"); Capture(); break;
                 case "end": End("viewer ended the session"); return;
                 default: Note("ignored unknown relay message"); break;
             }

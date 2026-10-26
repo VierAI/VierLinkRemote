@@ -1,1 +1,2 @@
-{ "compilerOptions": { "target": "es2022", "module": "es2022", "moduleResolution": "bundler", "strict": true, "noEmit": true, "types": ["@cloudflare/workers-types"], "lib": ["es2022"] }, "include": ["src"] }
+{ "compilerOptions": { "target": "es2022", "module": "es2022", "moduleResolution": "bundler", "strict": true, "noEmit": true, "types": ["@cloudflare/workers-types", "@cloudflare/vitest-plugin/types"], "lib": ["esnext"], "skipLibCheck": true }, "include": ["src", "test"] }
+

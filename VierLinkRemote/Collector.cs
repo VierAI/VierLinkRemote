@@ -36,8 +36,14 @@ public static unsafe class Collector
     private sealed record Pair(string? State, string? Status, string? LastApplyUtc, string? DataHash);
 
     /// <summary>Framework thread only. Returns the snapshot JSON (pretty) that is previewed and then encrypted.</summary>
-    public static string Build(Ctx c, string mode)
+    /// <summary>Plaintext cap so the encrypted, base64'd, enveloped frame stays under the relay limit.</summary>
+    public const int MaxPlain = 40 * 1024;
+
+    public static string Build(Ctx c, string mode) => Build(c, mode, out _);
+
+    public static string Build(Ctx c, string mode, out int trimmed)
     {
+        trimmed = 0;
         var lp = Plugin.Objects.LocalPlayer;
         var root = new JsonObject { ["v"] = Pinned.Protocol, ["scope"] = Pinned.Scope, ["mode"] = mode, ["reveal"] = c.Reveal, ["atUtc"] = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ") };
         var players = new JsonArray();
@@ -70,8 +76,21 @@ public static unsafe class Collector
             players.Add(p);
         }
         root["players"] = players;
-        return root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+        var opt = new JsonSerializerOptions { WriteIndented = true };
+        var text = root.ToJsonString(opt);
+        while (System.Text.Encoding.UTF8.GetByteCount(text) > MaxPlain && players.Count > 0)
+        {
+            players.RemoveAt(players.Count - 1); trimmed++;
+            root["trimmed"] = $"snapshot too large: {trimmed} player(s) left out";
+            text = root.ToJsonString(opt);
+        }
+        return text;
     }
+
+    private static readonly System.Text.RegularExpressions.Regex Word = new("^[A-Za-z][A-Za-z _-]{0,23}$");
+    /// <summary>PSync state/status reduced to a short word; anything else (could hold names or IDs) becomes "other".</summary>
+    private static string? Enum(string? s) => s == null ? null : Word.IsMatch(s) && !s.Contains('@') ? s : "other";
+    private static string? Utc(string? s) => s != null && DateTime.TryParse(s, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal, out var d) ? d.ToString("yyyy-MM-ddTHH:mm:ssZ") : null;
 
     private static (Dictionary<int, Pair>, string) ReadPairs()
     {
@@ -86,7 +105,7 @@ public static unsafe class Collector
                 int? ix = null;
                 foreach (var k in new[] { "objIndex", "objectIndex" }) if (it.TryGetProperty(k, out var e) && e.ValueKind == JsonValueKind.Number && e.TryGetInt32(out var x)) ix = x;
                 if (ix is not { } i || i < 0) continue;
-                d[i] = new Pair(S(it, "state"), S(it, "status"), S(it, "lastApplyUtc"), S(it, "dataHash"));
+                d[i] = new Pair(Enum(S(it, "state")), Enum(S(it, "status")), Utc(S(it, "lastApplyUtc")), S(it, "dataHash"));
             }
             return (d, "pair-states v" + ver);
         }

@@ -146,12 +146,31 @@ public static class Crypto
         if (!Verify(B64.Dec(Pinned.EdPub), parts[0] + "." + parts[1], B64.Dec(parts[2]))) throw new FormatException("signature does not match the pinned key");
         var b = JsonSerializer.Deserialize<TokenBody>(B64.Dec(parts[1])) ?? throw new FormatException("empty token");
         if (b.v != Pinned.Protocol) throw new FormatException("protocol version mismatch");
+        if (b.scope != Pinned.Scope) throw new FormatException("scope version mismatch; update the plugin and consent again");
         if (b.url != Pinned.RelayBase) throw new FormatException("token points at a different relay");
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         if (b.exp <= now) throw new FormatException("token expired");
         if (b.exp > now + Pinned.TokenTtlSeconds + 120) throw new FormatException("token lifetime too long");
         if (B64.Dec(b.sid).Length != 16 || B64.Dec(b.k).Length != 32) throw new FormatException("malformed token");
         return b;
+    }
+
+    /// <summary>Clipboard export: vlrx1.&lt;sid&gt;.&lt;unix ts&gt;.&lt;blob&gt;. The timestamp is the GCM sequence/AAD, so it cannot be altered.
+    /// Note: anyone holding the public key can still create an export; exports are not proof of origin.</summary>
+    public static string SealExport(string json)
+    {
+        var sid = Random(16); var ts = (ulong)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        return "vlrx1." + B64.Enc(sid) + "." + ts + "." + B64.Enc(Seal(Encoding.UTF8.GetBytes(json), B64.Dec(Pinned.XPub), null, sid, ts));
+    }
+
+    public static string OpenExport(string text, byte[] xpriv, out DateTimeOffset at)
+    {
+        var p = text.Trim().Split('.');
+        if (p.Length != 4 || p[0] != "vlrx1" || !ulong.TryParse(p[2], out var ts)) throw new FormatException("not an export");
+        var pt = Open(B64.Dec(p[3]), xpriv, null, B64.Dec(p[1]), out var seq);
+        if (seq != ts) throw new CryptographicException("timestamp mismatch");
+        at = DateTimeOffset.FromUnixTimeSeconds((long)ts);
+        return Encoding.UTF8.GetString(pt);
     }
 
     public static string CreateProofMessage(string sid, long exp, string auth, long ts) => $"vlr1-create|{sid}|{exp}|{auth}|{ts}";

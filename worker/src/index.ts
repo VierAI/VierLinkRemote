@@ -44,6 +44,9 @@ export class Session {
   private tester: WebSocket | null = null;
   private meta: Meta | null = null;
   private ended = false;
+  // Synchronous claims taken before any await, so concurrent hellos cannot both pass (input gates open on awaits).
+  private creatorClaimed = false;
+  private testerClaimed = false;
 
   constructor(private state: DurableObjectState, _env: Env) {}
 
@@ -58,9 +61,9 @@ export class Session {
     const bucket: Bucket = { tokens: 5, at: Date.now() };
     const timer = setTimeout(() => { if (!authed) this.close(server, 4401, "auth timeout"); }, HELLO_TIMEOUT_MS);
 
-    server.addEventListener("message", async (ev: MessageEvent) => {
+    server.addEventListener("message", (ev: MessageEvent) => { void (async () => {
       const data = typeof ev.data === "string" ? ev.data : "";
-      const cap = !authed ? 2048 : role === "tester" ? MAX_DATA + 64 : MAX_CTL;
+      const cap = !authed ? 2048 : role === "tester" ? MAX_DATA : MAX_CTL;
       if (data.length === 0 || data.length > cap) return this.close(server, 4413, "too large");
       if (!take(bucket, role === "tester" ? 1 : 2)) return this.close(server, 4429, "rate limited");
       let msg: any; try { msg = JSON.parse(data); } catch { return this.close(server, 4400, "bad frame"); }
@@ -77,7 +80,7 @@ export class Session {
       if (role === "tester" && msg?.t === "data" && typeof msg.d === "string") { this.creator?.send(JSON.stringify({ t: "data", d: msg.d })); return; }
       if (role === "creator" && msg?.t === "refresh") { this.tester?.send('{"t":"refresh"}'); return; }
       this.close(server, 4400, "bad frame");
-    });
+    })(); });
     const gone = () => { clearTimeout(timer); if (authed) this.endAll(); };
     server.addEventListener("close", gone);
     server.addEventListener("error", gone);
@@ -85,8 +88,10 @@ export class Session {
   }
 
   private async authCreator(sid: string, m: any): Promise<boolean> {
-    if (this.creator || this.meta || (await this.state.storage.get("meta")) || (await this.state.storage.get("dead"))) return false; // one creation per session id
+    if (this.creatorClaimed || this.creator || this.meta) return false;
+    this.creatorClaimed = true; // never released: one creation attempt per session object
     if (m?.t !== "create" || m.sid !== sid || typeof m.auth !== "string" || typeof m.sig !== "string") return false;
+    if ((await this.state.storage.get("meta")) || (await this.state.storage.get("dead"))) return false; // one creation per session id
     const t = now();
     if (!Number.isInteger(m.ts) || Math.abs(t - m.ts) > SKEW) return false;
     if (!Number.isInteger(m.exp) || m.exp <= t || m.exp > t + MAX_TTL + SKEW) return false;
@@ -103,14 +108,22 @@ export class Session {
 
   private async authTester(sid: string, m: any): Promise<boolean> {
     const meta = this.meta;
-    if (!meta || !this.creator || this.tester || meta.consumed) return false; // second tester rejected
+    if (!meta || !this.creator || this.tester || meta.consumed || this.testerClaimed) return false; // second tester rejected
     if (m?.t !== "join" || m.sid !== sid || typeof m.n !== "string" || typeof m.mac !== "string") return false;
     const t = now();
     if (!Number.isInteger(m.ts) || Math.abs(t - m.ts) > SKEW || t >= meta.exp) return false;
+    this.testerClaimed = true; // claimed synchronously, before the first await
+    let ok = false;
     try {
       const key = await crypto.subtle.importKey("raw", b64u(meta.auth), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
-      if (!(await crypto.subtle.verify("HMAC", key, b64u(m.mac), enc.encode(`vlr1-join|${sid}|${m.ts}|${m.n}`)))) return false;
-    } catch { return false; }
+      ok = await crypto.subtle.verify("HMAC", key, b64u(m.mac), enc.encode(`vlr1-join|${sid}|${m.ts}|${m.n}`));
+    } catch { ok = false; }
+    if (!ok) {
+      // Safe to release: nothing was consumed and no other join could pass while the claim was held.
+      // Releasing keeps a bad guess from burning the real tester's token.
+      this.testerClaimed = false;
+      return false;
+    }
     meta.consumed = true; // single use: consumed at first successful handshake
     await this.state.storage.put("meta", meta);
     return true;

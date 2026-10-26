@@ -14,6 +14,7 @@ public sealed class MainWindow : Window
     private string? tokenError;
     private string? exportPreview, exportBlob;
     private bool exportReveal;
+    private string? exportNote;
 
     public MainWindow() : base("VierLink Remote") { Size = new Vector2(620, 600); SizeCondition = ImGuiCond.FirstUseEver; IsOpen = !Plugin.Allowed; }
 
@@ -34,7 +35,8 @@ public sealed class MainWindow : Window
             " - PlayerSync sync state, status, last-apply time, and a per-session hash of the applied data\n" +
             " - Penumbra: counts of modded, missing and empty files, plus which game items are modded\n" +
             " - Glamourer: equipped item names only (no design names)\n" +
-            " - Customize+: whether a profile is active (yes/no)\n\n" +
+            " - Customize+: whether a profile is active (yes/no)\n" +
+            " - how far they are from you, in yalms\n\n" +
             "Never shared: chat or party chat, file paths or file contents, players you are not synced with, anything about your own character.\n\n" +
             "By default other players' names, collection names and modded items are replaced by random per-session hashes and labels " +
             "(P12, P407...). The single 'Reveal' switch in the session window shows BOTH player names AND their mod/collection names " +
@@ -59,16 +61,17 @@ public sealed class MainWindow : Window
         if (ImGui.Button("Build export preview"))
         {
             var c = new Ctx { Reveal = exportReveal };
-            exportPreview = Collector.Build(c, "export"); c.Wipe();
-            var sid = Crypto.Random(16);
-            exportBlob = "vlrx1." + B64.Enc(sid) + "." + B64.Enc(Crypto.Seal(Encoding.UTF8.GetBytes(exportPreview), B64.Dec(Pinned.XPub), null, sid, 0));
+            exportPreview = Collector.Build(c, "export", out var trimmedN); c.Wipe();
+            exportNote = trimmedN > 0 ? $"Snapshot too large, trimmed: {trimmedN} player(s) left out." : null;
+            exportBlob = Crypto.SealExport(exportPreview);
         }
         if (exportPreview != null && exportBlob != null)
         {
+            if (exportNote != null) ImGui.TextColored(Warn, exportNote);
             ImGui.TextWrapped("This is exactly what is inside the encrypted text below. Only the token owner can decrypt it.");
             var pv = exportPreview;
             ImGui.InputTextMultiline("##pv", ref pv, 200000, new Vector2(-1, 180), ImGuiInputTextFlags.ReadOnly);
-            if (ImGui.Button("Copy encrypted export to clipboard")) ImGui.SetClipboardText(exportBlob);
+            if (ImGui.Button("Copy encrypted export to clipboard")) SecureClipboard.Set(exportBlob);
             ImGui.SameLine(); if (ImGui.Button("Discard")) { exportPreview = null; exportBlob = null; }
         }
 
@@ -79,6 +82,7 @@ public sealed class MainWindow : Window
         ImGui.InputText("Session token", ref token, 4096, ImGuiInputTextFlags.Password);
         if (ImGui.Button("Verify and start"))
         {
+            try { if (ImGui.GetClipboardText() == token) SecureClipboard.Clear(); } catch { } // don't leave the token on the clipboard
             try { var t = Crypto.ReadToken(token); Plugin.Current = new Session(t); Plugin.SessionWin.IsOpen = true; Plugin.Current.Connect(); tokenError = null; }
             catch (Exception e) { tokenError = e.Message; }
             token = "";

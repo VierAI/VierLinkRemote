@@ -11,7 +11,8 @@ namespace VierLinkRemote.Shared;
 /// <summary>Outgoing-only WebSocket to the pinned relay. Never listens. Incoming frames are queued for the UI thread.</summary>
 public sealed class RelayClient : IDisposable
 {
-    public const int MaxFrame = 64 * 1024;
+    public const int MaxFrame = 60 * 1024;        // largest frame we send (Worker accepts 64 KiB)
+    public const int MaxReceive = 96 * 1024;      // receive headroom above the Worker maximum
     private readonly ClientWebSocket ws = new();
     private readonly CancellationTokenSource cts = new();
     private readonly SemaphoreSlim sendLock = new(1, 1);
@@ -40,7 +41,7 @@ public sealed class RelayClient : IDisposable
 
     private async Task ReceiveLoop()
     {
-        var buf = new byte[MaxFrame];
+        var buf = new byte[MaxReceive];
         try
         {
             while (ws.State == WebSocketState.Open && !cts.IsCancellationRequested)
