@@ -1,0 +1,26 @@
+[
+  {
+    "Author": "VierAI",
+    "Name": "VierLink Remote",
+    "InternalName": "VierLinkRemote",
+    "AssemblyVersion": "0.1.1.4",
+    "Description": "Lets the token owner's AI assistant, through a session token you accept, see how the owner and your synced pairs render on your client, to debug outfit and mod sync. Starts disabled. Read only: sync state, mod counts, equipped item names, Customize+ on/off. No chat, no file paths. Connects out only; never listens. Nothing is stored on your disk.\n\nAI generated code.",
+    "ApplicableVersion": "any",
+    "Tags": [
+      "Tools",
+      "AI"
+    ],
+    "DalamudApiLevel": 15,
+    "LoadRequiredState": 0,
+    "LoadSync": false,
+    "CanUnloadAsync": false,
+    "LoadPriority": 0,
+    "Punchline": "Read-only, opt-in sync-debug snapshots for one invited viewer (AI generated code).",
+    "AcceptsFeedback": true,
+    "RepoUrl": "https://github.com/VierAI/VierLinkRemote",
+    "DownloadLinkInstall": "https://github.com/VierAI/VierLinkRemote/releases/download/v0.1.1.4-vierai/VierLinkRemote-0.1.1.4.zip",
+    "DownloadLinkUpdate": "https://github.com/VierAI/VierLinkRemote/releases/download/v0.1.1.4-vierai/VierLinkRemote-0.1.1.4.zip",
+    "DownloadLinkTesting": "https://github.com/VierAI/VierLinkRemote/releases/download/v0.1.1.4-vierai/VierLinkRemote-0.1.1.4.zip",
+    "LastUpdate": 1793249016
+  }
+]

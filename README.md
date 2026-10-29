@@ -11,8 +11,12 @@ Two Dalamud plugins and one Cloudflare Worker:
 | `Shared/` | Pinned public keys, token format, crypto (X25519 + HKDF-SHA256 + AES-256-GCM, Ed25519 signatures), relay client. |
 | `worker/` | Relay Worker + Durable Object. Routes ciphertext only. |
 
-## Scope (v1)
-Players drawn on the tester's screen within 50 yalms who are PlayerSync pairs, plus the token owner's character
+## Scope (v3)
+Scope 3: an AI assistant run by the token owner requests each capture and processes the data; no human takes part in
+the debug process. Each live-session capture is a one-shot request (with a request id echoed in the reply); the tester's
+plugin answers only matching, validated requests. A newer scope version asks the tester to consent again.
+
+Data covered: players drawn on the tester's screen within 50 yalms who are PlayerSync pairs, plus the token owner's character
 (matched by a per-session keyed hash, no name in code). Per player: PlayerSync state/status/last apply/keyed data hash;
 Penumbra collection, counts of modded/missing/empty files and modded game-item prefixes; Glamourer equipped item names;
 Customize+ active yes/no. No chat, no file paths or contents, no unpaired players.
